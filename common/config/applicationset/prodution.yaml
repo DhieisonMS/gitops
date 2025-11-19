@@ -1,0 +1,47 @@
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: Production
+  namespace: argocd
+spec:
+  generators:
+    - git:
+        repoURL: https://github.com/seu-org/apps.git
+        revision: main
+        files:
+          - path: apps/**/**/prd/config.json
+    syncPolicy:
+      preserveResourcesOnDeletion: false
+  template:
+    metadata:
+      name: '{{ path[2] }}-{{ path.basename }}'
+      labels:
+        env: '{{ labels.path.basename }}'
+        app-type: '{{ labels.app-type}}'
+    spec:
+      project: '{{ labels.project }}'
+      source:
+        repoURL: '{{source.repo}}'
+        targetRevision: '{{source.branch}}'
+        path: '{{source.path}}'
+        helm:
+          valuesFiles:
+            - ../../../{{source.valueFile}}
+      destination:
+        name: '{{ destination.name}}'
+        namespace: '{{ destination.namespace}}'
+
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+          allowEmpty: false
+        syncOptions:
+          - RespectIgnoreDifferences=true
+          - CreateNamespace=true
+        retry:
+          limit: 3
+          backoff:
+            duration: 10s
+            factor: 2
+            maxDuration: 2m

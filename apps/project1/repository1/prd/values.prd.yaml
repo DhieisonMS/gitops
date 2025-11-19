@@ -1,0 +1,22 @@
+image:
+  repository: 
+
+configmap:
+  DOTNET_ENVIRONMENT: Development
+
+ingress:
+  hosts:
+    - host: teste.com.br
+
+resource:
+  limits:
+    cpu: 200m
+    memory: 256Mi
+  requests:
+    cpu: 100m
+    memory: 128Mi
+
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 2

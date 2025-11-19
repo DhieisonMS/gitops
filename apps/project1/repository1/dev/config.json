@@ -1,0 +1,18 @@
+{
+    "labels": {
+        "env": "dev",
+        "app-type": "api",
+        "conta-aws": "aws-teste-com.br",
+        "project": "project1"
+    },
+    "source": {
+        "repo": "https://teste",
+        "branch": "dev",
+        "path": "common/charts/dotnet-chart",
+        "valueFile": "apps/project1/repository1/dev/values.dev.yaml"
+    },
+    "destination": {
+        "name": "cluster-1",
+        "namespace": "teste-dev"
+    }
+}

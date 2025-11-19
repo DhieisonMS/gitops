@@ -1,0 +1,17 @@
+{
+    "labels": {
+        "env": "prd",
+        "app-type": "api",
+        "conta-aws": "aws-teste-com.br"
+    },
+    "source": {
+        "repo": "https://teste",
+        "branch": "prd",
+        "patch": "common/charts/dotnet-chart",
+        "valueFile": "apps/project1/repository1/prd/values.prd.yaml"
+    },
+    "destination": {
+        "name": "cluster-1",
+        "namespace": "teste-prd"
+    }
+}
