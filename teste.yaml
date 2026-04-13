@@ -1,0 +1,77 @@
+pool:
+  vmImage: 'ubuntu-latest'
+
+steps:
+- checkout: self
+  persistCredentials: true
+
+- task: NodeTool@0
+  inputs:
+    versionSpec: '22'
+
+- script: npm install
+  displayName: Install dependencies
+
+- script: |
+    git config user.email "devops@local"
+    git config user.name "azure-pipeline"
+  displayName: Configure Git
+
+- script: |
+    if [ ! -f CHANGELOG.md ]; then
+      echo "# Changelog" > CHANGELOG.md
+      echo "" >> CHANGELOG.md
+      echo "Arquivo inicial criado automaticamente" >> CHANGELOG.md
+    fi
+  displayName: Ensure CHANGELOG exists
+  
+- script: |
+    cat <<'EOF' > .releaserc
+    {
+      "branches": ["main"],
+      "plugins": [
+        [
+          "@semantic-release/commit-analyzer",
+          {
+            "preset": "conventionalcommits",
+            "parserOpts": {
+              "headerPattern": "^Merged PR \\d+: (\\w*)(?:\\((.*)\\))?: (.*)$",
+              "headerCorrespondence": ["type", "scope", "subject"]
+            }
+          }
+        ],
+        "@semantic-release/release-notes-generator",
+        [
+          "@semantic-release/changelog",
+          { "changelogFile": "CHANGELOG.md" }
+        ],
+        [
+          "@semantic-release/npm",
+          { "npmPublish": false }
+        ],
+        [
+          "@semantic-release/git",
+          {
+            "assets": ["package.json", "CHANGELOG.md"],
+            "message": "chore(release): ${nextRelease.version} [skip ci]"
+          }
+        ]
+      ]
+    }
+    EOF
+  displayName: Create releaserc
+
+- script: npx semantic-release
+  displayName: Run semantic-release
+
+- script: |
+    echo "==== VERSION ===="
+    node -p "require('./package.json').version"
+
+    echo "==== CHANGELOG ===="
+    cat CHANGELOG.md || echo "Sem changelog"
+  displayName: Show result
+
+- script: npx semantic-release
+  env:
+    SYSTEM_ACCESSTOKEN: $(System.AccessToken)
