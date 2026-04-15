@@ -1,0 +1,195 @@
+jobs:
+- job: release
+  displayName: Create Release from Staging
+  steps:
+
+  # =========================================
+  # CHECKOUT
+  # =========================================
+  - checkout: self
+    persistCredentials: true
+    fetchDepth: 0
+
+  # =========================================
+  # NODE
+  # =========================================
+  - task: NodeTool@0
+    inputs:
+      versionSpec: '22'
+
+  - script: npm install
+    displayName: Install dependencies
+
+  # =========================================
+  # GIT AUTH
+  # =========================================
+  - script: |
+      echo "Configurando usuário do Git com base no executor da pipeline..."
+
+      git config user.name "$(Build.RequestedFor)"
+      git config user.email "$(Build.RequestedForEmail)"
+
+      echo "Usuário configurado:"
+      git config user.name
+      git config user.email
+    displayName: Configure Git User (dynamic)
+
+  # =========================================
+  # GARANTE STAGING ATUALIZADA
+  # =========================================
+  - script: |
+      git fetch origin
+      git checkout staging
+      git reset --hard origin/staging
+    displayName: Sync staging
+
+  # =========================================
+  # RELEASERC (DRY-RUN)
+  # =========================================
+  - script: |
+      cat <<'EOF' > .releaserc
+      {
+        "branches": ["staging"],
+        "plugins": [
+          [
+            "@semantic-release/commit-analyzer",
+            {
+              "preset": "conventionalcommits",
+              "parserOpts": {
+                "headerPattern": "^Merged PR \\d+: (\\w*)(?:\\((.*)\\))?: (.*)$",
+                "headerCorrespondence": ["type", "scope", "subject"]
+              }
+            }
+          ],
+          [
+            "@semantic-release/release-notes-generator",
+            {
+              "preset": "conventionalcommits",
+              "parserOpts": {
+                "headerPattern": "^Merged PR \\d+: (\\w*)(?:\\((.*)\\))?: (.*)$",
+                "headerCorrespondence": ["type", "scope", "subject"]
+              }
+            }
+          ]
+        ]
+      }
+      EOF
+    displayName: Create releaserc
+
+  # =========================================
+  # CALCULAR VERSÃO + CHANGELOG
+  # =========================================
+  - script: |
+      echo "Executando semantic-release dry-run..."
+
+      OUTPUT=$(npx semantic-release --dry-run --no-color)
+
+      # Limpa ANSI (extra segurança)
+      CLEAN_OUTPUT=$(echo "$OUTPUT" | sed 's/\x1b\[[0-9;]*m//g')
+
+      echo "$CLEAN_OUTPUT" > full-log.txt
+
+      echo "========== VERSION =========="
+
+      VERSION=$(echo "$CLEAN_OUTPUT" | grep -oP 'next release version is \K[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+
+      if [ -z "$VERSION" ]; then
+        VERSION=$(echo "$CLEAN_OUTPUT" | grep -oP 'Published release \K[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+      fi
+
+      if [ -z "$VERSION" ]; then
+        echo "❌ Não foi possível extrair versão"
+        exit 1
+      fi
+
+      echo "Versão: $VERSION"
+      echo "##vso[task.setvariable variable=NEXT_VERSION]$VERSION"
+
+      echo "========== CHANGELOG =========="
+
+      awk '/Release note for version/{flag=1; next} flag' full-log.txt > CHANGELOG.tmp.md
+
+      sed -i '1i# Changelog\n' CHANGELOG.tmp.md
+
+      echo "Changelog gerado com sucesso"
+    displayName: Extract version + changelog
+
+  # =========================================
+  # CRIAR BRANCH RELEASE (BASE MAIN)
+  # =========================================
+  - script: |
+      echo "Criando release baseada na main..."
+
+      git fetch origin
+      git checkout main
+      git pull origin main
+
+      git checkout -b release/$(NEXT_VERSION)
+      echo "Aplicando versionamento na release..."
+
+      # Atualiza package.json
+      node -e "
+      const fs = require('fs');
+      const pkg = JSON.parse(fs.readFileSync('package.json'));
+      pkg.version = '$(NEXT_VERSION)';
+      fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2));
+      "
+
+      # Aplica CHANGELOG
+      mv CHANGELOG.tmp.md CHANGELOG.md
+
+      # Commit da release pronta
+      git add package.json CHANGELOG.md
+
+      git commit -m "chore(release): prepare $(NEXT_VERSION) [skip ci]"
+
+      echo "Push da release já versionada"
+      git push origin release/$(NEXT_VERSION)
+    displayName: Create release branch
+
+  - script: |
+      echo "Preparando changelog para PR..."
+
+      # Remove caracteres problemáticos e escapa JSON
+      CHANGELOG=$(sed 's/"/\\"/g' CHANGELOG.md | sed ':a;N;$!ba;s/\n/\\n/g')
+
+      echo "##vso[task.setvariable variable=CHANGELOG_ESCAPED]$CHANGELOG"
+    displayName: Prepare changelog for PR
+
+  # =========================================
+  # CRIAR PR STAGING → RELEASE
+  # =========================================
+  - script: |
+      echo "Criando PR staging → release/$(NEXT_VERSION)"
+
+      ORG_URL=$(System.CollectionUri)
+      PROJECT=$(System.TeamProject)
+      REPO_ID=$(Build.Repository.ID)
+
+      URL="${ORG_URL}${PROJECT}/_apis/git/repositories/${REPO_ID}/pullrequests?api-version=7.0"
+
+      echo "URL: $URL"
+
+      AUTHOR="$BUILD_REQUESTEDFOR"
+
+      DESCRIPTION="Release automática\n\nSolicitado por: $AUTHOR\n\n## 📦 Versão\n$(NEXT_VERSION)\n\n## 📝 Changelog\n\n$(CHANGELOG_ESCAPED)"
+
+      cat <<EOF > body.json
+      {
+        "sourceRefName": "refs/heads/staging",
+        "targetRefName": "refs/heads/release/$(NEXT_VERSION)",
+        "title": "release: $(NEXT_VERSION)",
+        "description": "$DESCRIPTION"
+      }
+      EOF
+
+      echo "Criando PR com descrição rica..."
+
+      curl -X POST \
+        -H "Authorization: Bearer $(System.AccessToken)" \
+        -H "Content-Type: application/json" \
+        "$URL" \
+        -d @body.json
+    displayName: Create PR with changelog
+
+
