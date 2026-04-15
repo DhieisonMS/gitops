@@ -1,0 +1,61 @@
+
+jobs:
+- job: prd
+  displayName: Production Release
+  steps:
+
+  # =========================================
+  # CHECKOUT
+  # =========================================
+  - checkout: self
+    persistCredentials: true
+    fetchDepth: 0
+
+  # =========================================
+  # NODE
+  # =========================================
+  - task: NodeTool@0
+    inputs:
+      versionSpec: '22'
+
+  - script: npm install
+    displayName: Install dependencies
+
+  # =========================================
+  # GIT AUTH
+  # =========================================
+  - script: |
+      NAME="$BUILD_REQUESTEDFOR"
+      EMAIL="$BUILD_REQUESTEDFOREMAIL"
+
+      if [ -z "$EMAIL" ]; then
+        NAME="azure-pipeline"
+        EMAIL="devops@local"
+      fi
+
+      git config user.name "$NAME"
+      git config user.email "$EMAIL"
+
+    displayName: Configure Git
+
+  # =========================================
+  # RELEASERC (SÓ TAG)
+  # =========================================
+  - script: |
+      cat <<'EOF' > .releaserc
+      {
+        "branches": ["main"],
+        "plugins": [
+          "@semantic-release/commit-analyzer"
+        ]
+      }
+      EOF
+    displayName: Create releaserc (PRD)
+
+  # =========================================
+  # CREATE TAG
+  # =========================================
+  - script: npx semantic-release --no-color
+    env:
+      SYSTEM_ACCESSTOKEN: $(System.AccessToken)
+    displayName: Create Tag
