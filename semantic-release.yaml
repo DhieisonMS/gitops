@@ -47,35 +47,44 @@ jobs:
   # RELEASERC (DRY-RUN)
   # =========================================
   - script: |
-      cat <<'EOF' > .releaserc
-      {
-        "branches": ["staging"],
-        "plugins": [
+      node -e "
+      const fs = require('fs');
+      const repoUrl = process.env.BUILD_REPOSITORY_URI.replace(/\.git$/, '');
+      const config = {
+        branches: ['staging'],
+        repositoryUrl: repoUrl,
+        plugins: [
           [
-            "@semantic-release/commit-analyzer",
+            '@semantic-release/commit-analyzer',
             {
-              "preset": "conventionalcommits",
-              "parserOpts": {
-                "headerPattern": "^Merged PR \\d+: (\\w*)(?:\\((.*)\\))?: (.*)$",
-                "headerCorrespondence": ["type", "scope", "subject"]
+              preset: 'conventionalcommits',
+              parserOpts: {
+                headerPattern: '^Merged PR \\\\d+: (\\\\w*)(?:\\\\((.*)\\\\))?:\\\\s*(.*)$',
+                headerCorrespondence: ['type', 'scope', 'subject']
               }
             }
           ],
           [
-            "@semantic-release/release-notes-generator",
+            '@semantic-release/release-notes-generator',
             {
-              "preset": "conventionalcommits",
-              "parserOpts": {
-                "headerPattern": "^Merged PR \\d+: (\\w*)(?:\\((.*)\\))?: (.*)$",
-                "headerCorrespondence": ["type", "scope", "subject"]
+              preset: 'conventionalcommits',
+              parserOpts: {
+                headerPattern: '^Merged PR \\\\d+: (\\\\w*)(?:\\\\((.*)\\\\))?:\\\\s*(.*)$',
+                headerCorrespondence: ['type', 'scope', 'subject']
+              },
+              writerOpts: {
+                hashLength: 7,
+                commitsSort: ['subject', 'scope'],
+                commitUrlFormat: repoUrl + '/commit/{{hash}}',
+                commitPartial: '* {{subject}} ([clique aqui]({{commitUrlFormat}}))\n'
               }
             }
           ]
         ]
-      }
-      EOF
-    displayName: Create releaserc
-
+      };
+      fs.writeFileSync('.releaserc.js', 'module.exports = ' + JSON.stringify(config, null, 2));
+      "
+    displayName: Generate .releaserc.js
   # =========================================
   # CALCULAR VERSÃO + CHANGELOG
   # =========================================
@@ -91,7 +100,7 @@ jobs:
 
       echo "========== VERSION =========="
 
-      VERSION=$(echo "$CLEAN_OUTPUT" | grep -oP 'next release version is \K[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+      VERSION=$(echo "$CLEAN_OUTPUT" | grep -oP 'The next release version is \K[0-9]+\.[0-9]+\.[0-9]+' | head -1)
 
       if [ -z "$VERSION" ]; then
         VERSION=$(echo "$CLEAN_OUTPUT" | grep -oP 'Published release \K[0-9]+\.[0-9]+\.[0-9]+' | head -1)
@@ -147,15 +156,6 @@ jobs:
       git push origin release/$(NEXT_VERSION)
     displayName: Create release branch
 
-  - script: |
-      echo "Preparando changelog para PR..."
-
-      # Remove caracteres problemáticos e escapa JSON
-      CHANGELOG=$(sed 's/"/\\"/g' CHANGELOG.md | sed ':a;N;$!ba;s/\n/\\n/g')
-
-      echo "##vso[task.setvariable variable=CHANGELOG_ESCAPED]$CHANGELOG"
-    displayName: Prepare changelog for PR
-
   # =========================================
   # CRIAR PR STAGING → RELEASE
   # =========================================
@@ -172,16 +172,50 @@ jobs:
 
       AUTHOR="$BUILD_REQUESTEDFOR"
 
-      DESCRIPTION="Release automática\n\nSolicitado por: $AUTHOR\n\n## 📦 Versão\n$(NEXT_VERSION)\n\n## 📝 Changelog\n\n$(CHANGELOG_ESCAPED)"
+      NEXT_VERSION="$(NEXT_VERSION)" AUTHOR="$AUTHOR" node <<'NODE'
+      const fs = require('fs');
 
-      cat <<EOF > body.json
-      {
-        "sourceRefName": "refs/heads/staging",
-        "targetRefName": "refs/heads/release/$(NEXT_VERSION)",
-        "title": "release: $(NEXT_VERSION)",
-        "description": "$DESCRIPTION"
-      }
-      EOF
+      const version = process.env.NEXT_VERSION;
+      const author = process.env.AUTHOR || 'azure-pipeline';
+      const escapeTableCell = (value) => String(value).replace(/\|/g, '\\|');
+
+      const changelog = fs
+        .readFileSync('CHANGELOG.md', 'utf8')
+        .replace(/\r\n/g, '\n')
+        .replace(/^# Changelog\s*/i, '')
+        .split('\n')
+        .map((line) =>
+          line
+            // Azure DevOps renders lines with 4+ leading spaces as code blocks.
+            .replace(/^\s{4,}((?:[-*+]|\d+\.)\s+)/, '$1')
+            .replace(/^\s{4,}(#{1,6}\s+)/, '$1')
+            .replace(/^\s{4,}$/g, '')
+        )
+        .join('\n')
+        .trim();
+
+      const description = [
+        `# Release ${version} 🚀`,
+        '',
+        `- **Solicitado por:** ${author}`,
+        `- **Origem:** staging`,
+        `- **Destino:** release/${version}`,
+        '',
+        '## Changelog 📦',
+        '',
+        changelog || '_Sem alterações listadas pelo semantic-release._',
+        '',
+      ].join('\n');
+
+      const body = {
+        sourceRefName: 'refs/heads/staging',
+        targetRefName: `refs/heads/release/${version}`,
+        title: `release: ${version}`,
+        description,
+      };
+
+      fs.writeFileSync('body.json', JSON.stringify(body, null, 2));
+      NODE
 
       echo "Criando PR com descrição rica..."
 
@@ -191,5 +225,3 @@ jobs:
         "$URL" \
         -d @body.json
     displayName: Create PR with changelog
-
-
