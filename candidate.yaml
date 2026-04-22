@@ -1,0 +1,148 @@
+stages:
+  - stage: ValidateCandidate
+    displayName: Validate Candidate
+    jobs:
+      - job: Check
+        displayName: Check PR Rules
+        steps:
+          - checkout: self
+            persistCredentials: true
+
+          - script: |
+              set -e
+
+              echo "🔍 Validando PR..."
+
+              sudo apt-get update -y
+              sudo apt-get install -y jq
+
+              PR_ID="$SYSTEM_PULLREQUEST_PULLREQUESTID"
+
+              if [ -z "$PR_ID" ]; then
+                echo "ℹ️ Não é execução de PR"
+                exit 0
+              fi
+
+              TARGET_BRANCH=${SYSTEM_PULLREQUEST_TARGETBRANCH#refs/heads/}
+              SOURCE_BRANCH=${SYSTEM_PULLREQUEST_SOURCEBRANCH#refs/heads/}
+
+              echo "Target: $TARGET_BRANCH"
+              echo "Source: $SOURCE_BRANCH"
+              echo "PR: $PR_ID"
+
+              # ---------------------------
+              # função comentário PR
+              # ---------------------------
+              comment_pr() {
+                local MESSAGE="$1"
+                MESSAGE=$(printf "%b" "$MESSAGE")
+
+                jq -n \
+                  --arg content "$MESSAGE" \
+                  '{
+                    comments: [
+                      {
+                        parentCommentId: 0,
+                        content: $content,
+                        commentType: 1
+                      }
+                    ],
+                    status: 1
+                  }' > body.json
+
+                curl -s -X POST \
+                  -H "Authorization: Bearer $SYSTEM_ACCESSTOKEN" \
+                  -H "Content-Type: application/json" \
+                  -d @body.json \
+                  "$SYSTEM_COLLECTIONURI$SYSTEM_TEAMPROJECT/_apis/git/repositories/$BUILD_REPOSITORY_ID/pullRequests/$PR_ID/threads?api-version=7.0" > /dev/null
+              }
+
+              # ---------------------------
+              # obter PR atual
+              # ---------------------------
+              RESPONSE=$(curl -s \
+                -H "Authorization: Bearer $SYSTEM_ACCESSTOKEN" \
+                "$SYSTEM_COLLECTIONURI$SYSTEM_TEAMPROJECT/_apis/git/repositories/$BUILD_REPOSITORY_ID/pullRequests/$PR_ID?api-version=7.0")
+
+              PR_TITLE=$(echo "$RESPONSE" | jq -r '.title')
+
+              # ---------------------------
+              # 🔒 LOCK VIA API (ACTIVE + COMPLETED)
+              # ---------------------------
+
+              # ACTIVE
+              FREEZE_ACTIVE=$(curl -s \
+                -H "Authorization: Bearer $SYSTEM_ACCESSTOKEN" \
+                "$SYSTEM_COLLECTIONURI$SYSTEM_TEAMPROJECT/_apis/git/repositories/$BUILD_REPOSITORY_ID/pullRequests?searchCriteria.status=active&searchCriteria.targetRefName=$SYSTEM_PULLREQUEST_TARGETBRANCH&api-version=7.0" \
+                | jq -r '.value[]
+                    | select(.title | startswith("[freeze]"))
+                    | .pullRequestId')
+
+              # COMPLETED
+              FREEZE_COMPLETED=$(curl -s \
+                -H "Authorization: Bearer $SYSTEM_ACCESSTOKEN" \
+                "$SYSTEM_COLLECTIONURI$SYSTEM_TEAMPROJECT/_apis/git/repositories/$BUILD_REPOSITORY_ID/pullRequests?searchCriteria.status=completed&searchCriteria.targetRefName=$SYSTEM_PULLREQUEST_TARGETBRANCH&api-version=7.0" \
+                | jq -r '.value[]
+                    | select(.title | startswith("[freeze]"))
+                    | .pullRequestId')
+
+              FREEZE_PRS=$(printf "%s\n%s" "$FREEZE_ACTIVE" "$FREEZE_COMPLETED" | sed '/^$/d')
+
+              if [ -n "$FREEZE_PRS" ]; then
+                if ! echo "$FREEZE_PRS" | grep -q "^$PR_ID$"; then
+
+                  echo "##vso[task.logissue type=error]❌ Candidate já está congelada. Veja detalhes nos comentários do PR."
+
+                  MSG="### ❌ Candidate já está congelada\n\n**Descrição:**\n- Existe um freeze ativo ou já concluído para esta candidate\n\n**Ação:**\n- Crie uma nova candidate baseada na main"
+
+                  comment_pr "$MSG"
+                  exit 1
+                fi
+              fi
+
+              # ---------------------------
+              # 🧊 FREEZE (evidência no PR)
+              # ---------------------------
+              if [[ "$PR_TITLE" == "[freeze]"* ]]; then
+
+                echo "🧊 Freeze detectado (lock via API)"
+
+                git fetch origin
+                git checkout -B "$SOURCE_BRANCH" "origin/$SOURCE_BRANCH"
+
+                DATE=$(date +%Y-%m-%d)
+
+                echo "$TARGET_BRANCH | frozen | $DATE | $PR_ID" > .candidate-state
+
+                git config user.email "devops@pipeline.local"
+                git config user.name "pipeline-bot"
+
+                git add .candidate-state
+
+                # idempotência
+                if git diff --cached --quiet; then
+                  echo "ℹ️ Candidate já estava congelada (rerun detectado)"
+
+                  MSG="### ℹ️ Candidate já estava congelada\n\n**Descrição:**\n- O freeze já foi aplicado anteriormente\n\n**Ação:**\n- Nenhuma ação necessária"
+
+                  comment_pr "$MSG"
+                  exit 0
+                fi
+
+                git commit -m "chore: freeze marker [skip ci]"
+
+                git pull --rebase origin "$SOURCE_BRANCH"
+                git push origin HEAD:"$SOURCE_BRANCH"
+
+                MSG="### 🧊 Freeze iniciado\n\n**Descrição:**\n- Lock ativo via PR\n\n**Observação:**\n- Este PR contém o marcador de freeze"
+
+                comment_pr "$MSG"
+                exit 0
+              fi
+
+              echo "✅ PR permitido"
+
+            displayName: Validate Freeze Logic
+
+            env:
+              SYSTEM_ACCESSTOKEN: $(System.AccessToken)
