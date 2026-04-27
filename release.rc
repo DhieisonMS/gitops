@@ -1,0 +1,41 @@
+
+module.exports = {
+  branches: [
+    { name: "staging", prerelease: "dev" },
+    { name: "release", prerelease: "rc" },
+    "main"
+  ],
+
+  plugins: [
+    [
+      "@semantic-release/commit-analyzer",
+      {
+        preset: "conventionalcommits",
+        parserOpts: {
+          mergePattern: /^Merged PR (\d+): (.*)$/,
+          mergeCorrespondence: ["id", "message"]
+        },
+        releaseRules: [
+          { type: "feat", release: "minor" },
+          { type: "fix", release: "patch" },
+          { breaking: true, release: "major" },
+          { type: "*", release: "patch" }
+        ]
+      }
+    ],
+
+    // 🔥 AQUI estava faltando config
+    [
+      "@semantic-release/release-notes-generator",
+      {
+        preset: "conventionalcommits",
+        parserOpts: {
+          mergePattern: /^Merged PR (\d+): (.*)$/,
+          mergeCorrespondence: ["id", "message"]
+        }
+      },
+    ],
+
+    "@semantic-release/changelog"
+  ]
+};
