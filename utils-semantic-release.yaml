@@ -1,0 +1,59 @@
+steps:
+
+  - task: NodeTool@0
+    inputs:
+      versionSpec: '22'
+  - script: |
+      if [ ! -f CHANGELOG.md ]; then
+        echo "📄 CHANGELOG.md não encontrado. Criando arquivo..."
+        echo -e "# Changelog\n\nAll notable changes will be documented in this file.\n" > CHANGELOG.md
+        echo "✅ CHANGELOG.md criado com sucesso!"
+      else
+        echo "ℹ️ CHANGELOG.md já existe. Nenhuma ação necessária."
+      fi
+    workingDirectory: $(Build.SourcesDirectory)/$(Build.Repository.Name)
+    displayName: Ensure changelog exists
+
+  - script: |
+      npm install --no-save \
+        semantic-release \
+        conventional-changelog-conventionalcommits \
+        @semantic-release/commit-analyzer \
+        @semantic-release/release-notes-generator \
+        @semantic-release/changelog
+
+  - script: |
+      echo "Executando semantic-release dry-run..."
+
+      OUTPUT=$(npx semantic-release --dry-run --no-color --extends $(Pipeline.Workspace)/templates/common/config/.releaserc.js)
+
+      # Limpa ANSI (extra segurança)
+      CLEAN_OUTPUT=$(echo "$OUTPUT" | sed 's/\x1b\[[0-9;]*m//g')
+
+      echo "$CLEAN_OUTPUT" > full-log.txt
+
+      echo "========== VERSION =========="
+
+      VERSION=$(echo "$CLEAN_OUTPUT" | grep -oP 'The next release version is \K[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+
+      if [ -z "$VERSION" ]; then
+        VERSION=$(echo "$CLEAN_OUTPUT" | grep -oP 'Published release \K[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+      fi
+
+      if [ -z "$VERSION" ]; then
+        echo "❌ Não foi possível extrair versão"
+        exit 1
+      fi
+
+      echo "Versão: $VERSION"
+      echo "##vso[task.setvariable variable=NEXT_VERSION]$VERSION"
+
+      echo "========== CHANGELOG =========="
+
+      awk '/Release note for version/{flag=1; next} flag' full-log.txt > CHANGELOG.tmp.md
+
+      sed -i '1i# Changelog\n' CHANGELOG.tmp.md
+
+      echo "Changelog gerado com sucesso"
+    displayName: Extract version + changelog
+    workingDirectory: $(Build.SourcesDirectory)/$(Build.Repository.Name)
