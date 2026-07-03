@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Visão Geral da Migração</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;font-family:Segoe UI,Arial,sans-serif}
+body{background:#f4f6fb;color:#333;display:flex}
+aside{width:240px;background:#5b21b6;color:#fff;height:100vh;position:fixed;padding:24px}
+aside h2{margin-bottom:30px}
+aside a{display:block;color:#fff;text-decoration:none;padding:12px 14px;border-radius:8px;margin-bottom:8px}
+aside a:hover,aside a.active{background:#f97316}
+main{margin-left:240px;padding:30px;width:100%}
+.header{display:flex;justify-content:space-between;align-items:center;margin-bottom:25px}
+h1{color:#5b21b6}
+.filters{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:25px}
+.filters input,.filters select{padding:10px 12px;border:1px solid #ddd;border-radius:8px;background:#fff}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:16px;margin-bottom:25px}
+.card{background:#fff;padding:20px;border-radius:12px;border-top:5px solid #f97316;box-shadow:0 4px 12px rgba(0,0,0,.08)}
+.card small{color:#666}
+.card h2{font-size:32px;color:#5b21b6;margin-top:8px}
+.progress{background:#fff;padding:20px;border-radius:12px;box-shadow:0 4px 12px rgba(0,0,0,.08);margin-bottom:25px}
+.bar{height:22px;background:#eee;border-radius:20px;overflow:hidden;margin-top:12px}
+.fill{height:100%;width:78%;background:linear-gradient(90deg,#5b21b6,#f97316)}
+.grid{display:grid;grid-template-columns:2fr 1fr;gap:20px}
+table{width:100%;background:#fff;border-collapse:collapse;border-radius:12px;overflow:hidden;box-shadow:0 4px 12px rgba(0,0,0,.08)}
+th{background:#5b21b6;color:#fff;padding:14px;text-align:left}
+td{padding:14px;border-bottom:1px solid #eee}
+.status{padding:4px 10px;border-radius:20px;color:#fff;font-size:12px}
+.ok{background:#22c55e}.pend{background:#f59e0b}.err{background:#ef4444}
+.panel{background:#fff;padding:20px;border-radius:12px;box-shadow:0 4px 12px rgba(0,0,0,.08)}
+.panel ul{margin-top:15px;padding-left:20px}
+.panel li{margin-bottom:10px}
+</style>
+</head>
+<body>
+<aside>
+<h2>Migration</h2>
+<a class="active">Dashboard</a>
+<a>Projetos</a>
+<a>Repositórios</a>
+<a>Migrações</a>
+<a>Pipelines</a>
+<a>Métricas</a>
+</aside>
+
+<main>
+<div class="header">
+<h1>Visão Geral da Migração de Repositórios</h1>
+<div>Atualizado: --/--/----</div>
+</div>
+
+<div class="filters">
+<input placeholder="Pesquisar repositório">
+<select><option>Projeto</option></select>
+<select><option>Status</option></select>
+</div>
+
+<div class="cards">
+<div class="card"><small>Projetos</small><h2 id="projects">0</h2></div>
+<div class="card"><small>Repositórios</small><h2 id="repos">0</h2></div>
+<div class="card"><small>Migrados</small><h2 id="done">0</h2></div>
+<div class="card"><small>Pendentes</small><h2 id="pending">0</h2></div>
+<div class="card"><small>Erros</small><h2 id="errors">0</h2></div>
+<div class="card"><small>Projetos sem Repositórios</small><h2 id="empty">0</h2></div>
+</div>
+
+<div class="progress">
+<b>Progresso Geral da Migração</b>
+<div class="bar"><div class="fill"></div></div>
+<p style="margin-top:10px">0% concluído (valor atualizado via JavaScript).</p>
+</div>
+
+<div class="grid">
+<div>
+<table>
+<thead>
+<tr>
+<th>Projeto</th>
+<th>Repositório</th>
+<th>Status</th>
+<th>Pipeline</th>
+<th>Nova URL</th>
+</tr>
+</thead>
+<tbody id="repositoriesTable">
+<tr><td colspan="5" style="text-align:center">Os dados serão carregados de <b>projects.json</b> e <b>repositories.json</b>.</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="panel">
+<h3>Resumo Executivo</h3>
+<ul>
+<li>Total de projetos.</li>
+<li>Projetos sem repositórios.</li>
+<li>Total de repositórios migrados.</li>
+<li>Repositórios pendentes.</li>
+<li>Repositórios com erro.</li>
+<li>Repositórios com pipeline.</li>
+<li>Repositórios sem pipeline.</li>
+</ul>
+</div>
+</div>
+</main>
+</body>
+</html>
